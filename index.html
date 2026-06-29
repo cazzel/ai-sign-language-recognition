@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bahasa Isyarat A-Z</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+
+        .alphabet-button,
+        .start-test-button,
+        button {
+            font-size: 16px;
+            margin: 10px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            color: white;
+        }
+
+        .alphabet-button {
+            background-color: #4CAF50;
+        }
+
+        .alphabet-button:hover {
+            background-color: #45a049;
+        }
+
+        .start-test-button {
+            background-color: #2196F3;
+        }
+
+        .start-test-button:hover {
+            background-color: #1976D2;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        video {
+            width: 300px;
+            height: auto;
+            border: 2px solid #000;
+        }
+
+        .result {
+            font-size: 24px;
+            margin-top: 20px;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .active {
+            display: block;
+        }
+
+        #countdown {
+            font-size: 20px;
+            margin-top: 10px;
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="page-home" class="page active">
+        <h1>Pilih Huruf Bahasa Isyarat A-Z</h1>
+        <div id="alphabetContainer"></div>
+        <div id="letterImage">
+            <img id="signImage" src="" alt="Image" style="max-width: 300px; display:none;">
+        </div>
+        <br>
+        <button class="start-test-button" onclick="goToTestPage()">Mulai Tes</button>
+    </div>
+
+    <div id="page-test" class="page">
+        <h1>Mulai Tes Bahasa Isyarat</h1>
+        <p>Tunjukkan huruf berikut:</p>
+        <h2 id="targetLetter">A</h2>
+        <button onclick="startTest()">Acak Huruf Baru</button>
+        <div id="webcam-container"></div>
+        <div id="label-container"></div>
+        <div id="countdown"></div>
+        <div class="result" id="result"></div>
+        <button class="start-test-button" onclick="goToHomePage()">Kembali</button>
+    </div>
+
+    <script>
+        const modelURL = "model/model.json";
+        const metadataURL = "model/metadata.json";
+        const testLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+        let target = "A";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let predictionHistory = [];
+        let detecting = false;
+        let countdown = 5;
+        let countdownInterval;
+
+        async function init() {
+            try {
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                webcam = new tmImage.Webcam(300, 300, true);
+                await webcam.setup();
+                await webcam.play();
+
+                document.getElementById("webcam-container").innerHTML = "";
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                labelContainer = document.getElementById("label-container");
+
+                // Langsung mulai deteksi
+                predictionHistory = [];
+                detecting = true;
+                startCountdown();
+                loop();
+            } catch (err) {
+                alert("Gagal memuat model atau webcam.");
+                console.error(err);
+            }
+        }
+
+        function startCountdown() {
+            countdown = 5;
+            document.getElementById("result").innerText = "";
+            document.getElementById("countdown").innerText = `Sisa waktu: ${countdown} detik`;
+
+            countdownInterval = setInterval(() => {
+                countdown--;
+                document.getElementById("countdown").innerText = `Sisa waktu: ${countdown} detik`;
+
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    detecting = false;
+                    evaluatePrediction();
+                }
+            }, 1000);
+        }
+
+        async function loop() {
+            if (!detecting) return;
+            webcam.update();
+            const prediction = await model.predict(webcam.canvas);
+
+            const best = prediction.reduce((prev, current) =>
+                (current.probability > prev.probability) ? current : prev
+            );
+
+            // Hanya simpan prediksi kalau confidence tinggi
+            if (best.probability > 0.85) {
+                predictionHistory.push(best.className);
+            }
+
+            // Deteksi sementara
+            labelContainer.innerText = "Deteksi sementara...";
+
+            window.requestAnimationFrame(loop);
+        }
+
+        function evaluatePrediction() {
+            if (predictionHistory.length === 0) {
+                document.getElementById("result").innerText = "⚠️ Tidak ada prediksi.";
+                return;
+            }
+
+            const freq = {};
+            predictionHistory.forEach(label => {
+                freq[label] = (freq[label] || 0) + 1;
+            });
+
+            const [mostFrequent] = Object.entries(freq).reduce((a, b) => a[1] > b[1] ? a : b);
+            const isCorrect = mostFrequent.toUpperCase() === target;
+
+            document.getElementById("result").innerText = isCorrect
+                ? `✅ Benar! (${mostFrequent})`
+                : `❌ Salah. Terdeteksi: ${mostFrequent}`;
+        }
+
+        function startTest() {
+            target = testLetters[Math.floor(Math.random() * testLetters.length)];
+            document.getElementById("targetLetter").innerText = target;
+            if (webcam) {
+                webcam.stop();
+            }
+            init();
+        }
+
+        function goToTestPage() {
+            document.getElementById('page-home').classList.remove('active');
+            document.getElementById('page-test').classList.add('active');
+            startTest();
+        }
+
+        function goToHomePage() {
+            document.getElementById('page-test').classList.remove('active');
+            document.getElementById('page-home').classList.add('active');
+            if (webcam) webcam.stop();
+        }
+
+        // Tombol A-Z
+        const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+        letters.forEach(letter => {
+            document.getElementById("alphabetContainer").innerHTML +=
+                `<button class="alphabet-button" onclick="showLetter('${letter}')">${letter}</button>`;
+        });
+
+        function showLetter(letter) {
+            document.getElementById('signImage').src = `images/${letter}.jpg`;
+            document.getElementById('signImage').style.display = 'block';
+        }
+    </script>
+
+
+</body>
+
+</html>
